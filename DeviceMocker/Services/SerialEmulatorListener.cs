@@ -28,48 +28,60 @@ namespace DeviceMocker.Services
 
             _serialPort = new SerialPort(config.SerialPortName, config.BaudRate)
             {
-                ReadTimeout = 500,
+                ReadBufferSize = 262144,
+                WriteBufferSize = 262144,
+                ReadTimeout = 250,
                 WriteTimeout = 500
             };
-            _serialPort.DataReceived += SerialPortOnDataReceived;
             _serialPort.Open();
 
+            _ = Task.Run(() => ReadLoop(), cancellationToken);
+
             return Task.CompletedTask;
+        }
+
+        private void ReadLoop()
+        {
+            var buffer = new byte[4096];
+            try
+            {
+                while (!_cancellationToken.IsCancellationRequested && _serialPort is { IsOpen: true })
+                {
+                    int read;
+                    try
+                    {
+                        read = _serialPort.Read(buffer, 0, buffer.Length);
+                    }
+                    catch (TimeoutException)
+                    {
+                        continue;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                    catch
+                    {
+                        break;
+                    }
+
+                    if (read <= 0)
+                        break;
+
+                    var payload = new byte[read];
+                    Array.Copy(buffer, payload, read);
+                    _onBytesReceived?.Invoke(payload, $"Serial {PortName}", _cancellationToken).GetAwaiter().GetResult();
+                }
+            }
+            catch
+            {
+            }
         }
 
         public Task StopAsync()
         {
             Stop();
             return Task.CompletedTask;
-        }
-
-        private async void SerialPortOnDataReceived(object? sender, SerialDataReceivedEventArgs e)
-        {
-            if (_serialPort == null || _onBytesReceived == null)
-                return;
-
-            try
-            {
-                var bytesToRead = _serialPort.BytesToRead;
-                if (bytesToRead <= 0)
-                    return;
-
-                var buffer = new byte[bytesToRead];
-                var read = _serialPort.Read(buffer, 0, buffer.Length);
-                if (read <= 0)
-                    return;
-
-                if (read != buffer.Length)
-                    Array.Resize(ref buffer, read);
-
-                await _onBytesReceived(buffer, $"Serial {PortName}", _cancellationToken);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch
-            {
-            }
         }
 
         public void Dispose()
@@ -82,7 +94,6 @@ namespace DeviceMocker.Services
         {
             if (_serialPort != null)
             {
-                _serialPort.DataReceived -= SerialPortOnDataReceived;
                 if (_serialPort.IsOpen)
                     _serialPort.Close();
                 _serialPort.Dispose();

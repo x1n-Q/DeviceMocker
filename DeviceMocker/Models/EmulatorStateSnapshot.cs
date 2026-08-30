@@ -10,6 +10,7 @@ namespace DeviceMocker.Models
         public string ActiveModuleName { get; set; } = "Not running";
         public int SessionCount { get; set; }
         public string ReceiptPreview { get; set; } = string.Empty;
+        public System.Collections.Generic.IReadOnlyList<ReceiptBlock> ReceiptBlocks { get; set; } = Array.Empty<ReceiptBlock>();
         public bool IsDrawerOpen { get; set; }
     }
 }

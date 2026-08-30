@@ -58,6 +58,7 @@ namespace DeviceMocker.Services
                 ActiveModuleName = _activeModule?.Name ?? "Not running",
                 SessionCount = _sessionCount,
                 ReceiptPreview = _escPosPrinterEmulator.ReceiptPreview,
+                ReceiptBlocks = _escPosPrinterEmulator.Blocks,
                 IsDrawerOpen = _cashDrawerEmulator.IsDrawerOpen
             };
         }
