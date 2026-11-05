@@ -412,7 +412,7 @@ namespace DeviceMocker.ViewModels
 
         private void OnHostLogReceived(EmulatorSessionLog log)
         {
-            System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+            RunOnUiThread(() =>
             {
                 if (log.Kind == EmulatorSessionLogKind.Raw)
                     InsertLog(RawLogs, log);
@@ -424,7 +424,7 @@ namespace DeviceMocker.ViewModels
         private void ApplySnapshot()
         {
             var snapshot = ServiceLocator.EmulatorHost.GetSnapshot();
-            System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+            RunOnUiThread(() =>
             {
                 IsRunning = snapshot.IsRunning;
                 ListenerStatus = snapshot.ListenerStatus;
@@ -437,6 +437,18 @@ namespace DeviceMocker.ViewModels
                     ReceiptBlocks.Add(block);
                 DrawerState = snapshot.IsDrawerOpen ? "Open" : "Closed";
             });
+        }
+
+        private static void RunOnUiThread(Action action)
+        {
+            var dispatcher = System.Windows.Application.Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.HasShutdownStarted)
+                return;
+
+            if (dispatcher.CheckAccess())
+                action();
+            else
+                _ = dispatcher.BeginInvoke(action);
         }
 
         private static void InsertLog(ObservableCollection<EmulatorSessionLog> target, EmulatorSessionLog log)

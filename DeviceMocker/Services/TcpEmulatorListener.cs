@@ -11,17 +11,20 @@ namespace DeviceMocker.Services
     public sealed class TcpEmulatorListener : IDisposable
     {
         private readonly ConcurrentDictionary<string, string> _activeSessions = new();
+        private readonly ConcurrentDictionary<string, TcpClient> _activeClients = new();
+        private readonly ConcurrentDictionary<string, Task> _clientTasks = new();
         private Func<byte[], string, CancellationToken, Task>? _onBytesReceived;
         private CancellationTokenSource? _cancellationTokenSource;
         private System.Net.Sockets.TcpListener? _listener;
+        private Task? _acceptLoopTask;
 
         public event Action<int, string>? SessionChanged;
 
         public bool IsRunning => _listener != null;
 
-        public Task StartAsync(EmulatorEndpointConfig config, Func<byte[], string, CancellationToken, Task> onBytesReceived, CancellationToken cancellationToken)
+        public async Task StartAsync(EmulatorEndpointConfig config, Func<byte[], string, CancellationToken, Task> onBytesReceived, CancellationToken cancellationToken)
         {
-            Stop();
+            await StopAsync().ConfigureAwait(false);
 
             if (config.TcpPort <= 0)
                 throw new InvalidOperationException("TCP listener requires a valid port.");
@@ -31,16 +34,57 @@ namespace DeviceMocker.Services
 
             var address = ResolveAddress(config.TcpHost);
             _listener = new System.Net.Sockets.TcpListener(address, config.TcpPort);
-            _listener.Start();
-
-            _ = AcceptLoopAsync(_cancellationTokenSource.Token);
-            return Task.CompletedTask;
+            try
+            {
+                _listener.Start();
+                _acceptLoopTask = AcceptLoopAsync(_cancellationTokenSource.Token);
+            }
+            catch
+            {
+                await StopAsync().ConfigureAwait(false);
+                throw;
+            }
         }
 
-        public Task StopAsync()
+        public async Task StopAsync()
         {
-            Stop();
-            return Task.CompletedTask;
+            var cancellationTokenSource = _cancellationTokenSource;
+            var listener = _listener;
+            var acceptLoopTask = _acceptLoopTask;
+
+            _cancellationTokenSource = null;
+            _listener = null;
+            _acceptLoopTask = null;
+
+            cancellationTokenSource?.Cancel();
+            listener?.Stop();
+            foreach (var client in _activeClients.Values)
+                client.Dispose();
+
+            var tasks = _clientTasks.Values.ToArray();
+            if (acceptLoopTask != null)
+                tasks = tasks.Append(acceptLoopTask).ToArray();
+
+            if (tasks.Length > 0)
+            {
+                try
+                {
+                    await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
+                }
+                catch (TimeoutException)
+                {
+                    AppLogger.Info("Timed out while stopping TCP listener sessions.");
+                }
+                catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or SocketException)
+                {
+                }
+            }
+
+            _activeClients.Clear();
+            _activeSessions.Clear();
+            _clientTasks.Clear();
+            cancellationTokenSource?.Dispose();
+            SessionChanged?.Invoke(0, "No active TCP sessions.");
         }
 
         private async Task AcceptLoopAsync(CancellationToken cancellationToken)
@@ -49,24 +93,28 @@ namespace DeviceMocker.Services
             {
                 while (!cancellationToken.IsCancellationRequested && _listener != null)
                 {
-                    var client = await _listener.AcceptTcpClientAsync(cancellationToken);
-                    _ = HandleClientAsync(client, cancellationToken);
+                    var client = await _listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
+                    var sessionId = Guid.NewGuid().ToString("N")[..8];
+                    var task = HandleClientAsync(sessionId, client, cancellationToken);
+                    _clientTasks[sessionId] = task;
                 }
             }
             catch (OperationCanceledException)
             {
             }
-            catch
+            catch (Exception ex)
             {
+                if (!cancellationToken.IsCancellationRequested)
+                    AppLogger.Error("TCP accept loop stopped unexpectedly.", ex);
             }
         }
 
-        private async Task HandleClientAsync(TcpClient client, CancellationToken cancellationToken)
+        private async Task HandleClientAsync(string sessionId, TcpClient client, CancellationToken cancellationToken)
         {
             var endpoint = client.Client.RemoteEndPoint?.ToString() ?? "tcp-client";
-            var sessionId = Guid.NewGuid().ToString("N")[..8];
 
             _activeSessions[sessionId] = endpoint;
+            _activeClients[sessionId] = client;
             SessionChanged?.Invoke(_activeSessions.Count, $"{_activeSessions.Count} active TCP session(s). Last: {endpoint}");
 
             try
@@ -77,7 +125,7 @@ namespace DeviceMocker.Services
                     var buffer = new byte[4096];
                     while (!cancellationToken.IsCancellationRequested)
                     {
-                        var read = await stream.ReadAsync(buffer, cancellationToken);
+                        var read = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
                         if (read <= 0)
                             break;
 
@@ -85,7 +133,7 @@ namespace DeviceMocker.Services
                         {
                             var payload = new byte[read];
                             Array.Copy(buffer, payload, read);
-                            await _onBytesReceived(payload, endpoint, cancellationToken);
+                            await _onBytesReceived(payload, endpoint, cancellationToken).ConfigureAwait(false);
                         }
                     }
                 }
@@ -93,12 +141,16 @@ namespace DeviceMocker.Services
             catch (OperationCanceledException)
             {
             }
-            catch
+            catch (Exception ex)
             {
+                if (!cancellationToken.IsCancellationRequested)
+                    AppLogger.Error($"TCP session '{endpoint}' stopped unexpectedly.", ex);
             }
             finally
             {
+                _activeClients.TryRemove(sessionId, out _);
                 _activeSessions.TryRemove(sessionId, out _);
+                _clientTasks.TryRemove(sessionId, out _);
                 var summary = _activeSessions.IsEmpty
                     ? "No active TCP sessions."
                     : $"{_activeSessions.Count} active TCP session(s).";
@@ -108,20 +160,8 @@ namespace DeviceMocker.Services
 
         public void Dispose()
         {
-            Stop();
+            StopAsync().GetAwaiter().GetResult();
             GC.SuppressFinalize(this);
-        }
-
-        private void Stop()
-        {
-            _cancellationTokenSource?.Cancel();
-            _cancellationTokenSource?.Dispose();
-            _cancellationTokenSource = null;
-
-            _listener?.Stop();
-            _listener = null;
-            _activeSessions.Clear();
-            SessionChanged?.Invoke(0, "No active TCP sessions.");
         }
 
         private static IPAddress ResolveAddress(string host)

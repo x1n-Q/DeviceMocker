@@ -125,6 +125,9 @@ cd DeviceMocker
 dotnet run --project DeviceMocker/DeviceMocker.csproj
 ```
 
+To keep settings, profiles, and logs in a custom location, set `DEVICEMOCKER_DATA_DIR`
+before starting the app.
+
 ### First Simulation Test
 
 1. Open Notepad.
@@ -189,45 +192,27 @@ dotnet publish DeviceMocker/DeviceMocker.csproj -c Release -r win-x64
 dotnet publish Samples/PosHardwareTestApp/PosHardwareTestApp.csproj -c Release -r win-x64
 ```
 
-This repository also includes packaged release output under `releases/` when generated locally.
-
-### Build The Installer
-
-To generate a one-click Windows setup executable for `DeviceMocker` with the bundled POS Hardware Test App:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File installer/Build-Installer.ps1
-```
-
-The installer is written to `releases/` as `DeviceMocker-Setup-v<version>-win-x64.exe`.
-
 ### Prepare An MSIX Package
 
-This repository includes `DeviceMocker.Package/` plus SDK-based MSIX scripts under `msix/`.
-
-Important notes:
-
-- publisher display metadata is set to `xinQ`
-- author metadata is set to `Daniel Depaor`
-- for Microsoft Store submission, rebuild with the exact publisher string from Partner Center
-
-To generate a signed local test MSIX package:
+Generate the x64 Microsoft Store package with the checked-in Partner Center identity:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File msix/Build-MSIX.ps1 -SignPackage
+powershell -ExecutionPolicy Bypass -File scripts/Build-MSIX.ps1
 ```
 
-To generate a Store-ready package with your real Partner Center publisher:
+The unsigned Store package and SHA-256 checksum are written to
+`artifacts/store-submission/`. Partner Center signs the package during ingestion.
+
+### Tests
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File msix/Build-MSIX.ps1 -Publisher "CN=YOUR-PARTNER-CENTER-PUBLISHER"
+dotnet test Tests/DeviceMocker.Tests/DeviceMocker.Tests.csproj
 ```
 
-To install the locally signed MSIX package, run this from an elevated PowerShell window:
+### Branding
 
-```powershell
-powershell -ExecutionPolicy Bypass -File msix/Install-MSIX.ps1
-```
+Editable SVG sources are under `branding/`. Regenerate the Windows icon and Microsoft
+Store assets with `tools/Generate-Branding.ps1`.
 
 ## License
 

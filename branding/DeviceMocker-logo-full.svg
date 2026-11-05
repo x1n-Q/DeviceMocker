@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="500" viewBox="0 0 1200 500" role="img" aria-labelledby="title desc">
+  <title id="title">DeviceMocker logo</title>
+  <desc id="desc">DeviceMocker device signal mark and wordmark.</desc>
+  <defs>
+    <radialGradient id="background" cx="38%" cy="45%" r="80%">
+      <stop offset="0" stop-color="#14264b"/>
+      <stop offset="0.58" stop-color="#09152c"/>
+      <stop offset="1" stop-color="#050b18"/>
+    </radialGradient>
+    <linearGradient id="signal" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#2584ff"/>
+      <stop offset="0.48" stop-color="#2ab8ff"/>
+      <stop offset="0.72" stop-color="#6d5dfc"/>
+      <stop offset="1" stop-color="#a855f7"/>
+    </linearGradient>
+    <linearGradient id="wordmark" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2ab8ff"/>
+      <stop offset="0.55" stop-color="#3578ff"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="500" rx="56" fill="url(#background)"/>
+  <g transform="translate(62 54) scale(.76)" fill="none" stroke="url(#signal)" stroke-width="27" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M132 190 72 256l60 66"/>
+    <path d="m380 190 60 66-60 66"/>
+    <path d="M220 128V91c0-12 10-22 22-22h28c12 0 22 10 22 22v37"/>
+    <path d="M238 96v17M274 96v17"/>
+    <path d="M170 222v-35c0-18 15-33 33-33h106c18 0 33 15 33 33v35"/>
+    <path d="M170 290v35c0 18 15 33 33 33h106c18 0 33-15 33-33v-35"/>
+    <path d="M139 265h68l24 52 27-106 28 98 22-44h65"/>
+  </g>
+  <text x="440" y="290" fill="#f7f9ff" font-family="Segoe UI, Arial, sans-serif" font-size="112" font-weight="700" letter-spacing="-4">Device</text>
+  <text x="788" y="290" fill="url(#wordmark)" font-family="Segoe UI, Arial, sans-serif" font-size="112" font-weight="700" letter-spacing="-5">Mocker</text>
+  <text x="448" y="346" fill="#9fb0ca" font-family="Segoe UI, Arial, sans-serif" font-size="27" font-weight="500" letter-spacing="5">HARDWARE DEVELOPMENT TOOLKIT</text>
+</svg>

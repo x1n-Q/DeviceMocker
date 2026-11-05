@@ -5,6 +5,25 @@ All notable changes to DeviceMocker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-11-05
+
+### Added
+- New DeviceMocker identity with editable SVG sources, Windows icon, and Microsoft Store tile assets.
+- `DEVICEMOCKER_DATA_DIR` override for portable development and test environments.
+- Rotating application diagnostics under the app data `Logs` folder.
+
+### Fixed
+- Emulator start failures now clean up listeners and modules instead of leaving a partial running state.
+- Serial and TCP listener tasks are cancelled and awaited during shutdown, reducing port-lock and exit races.
+- Settings and profile writes now use atomic file replacement to prevent truncated JSON after interruption.
+- Invalid settings are backed up and safely reset; an invalid profile no longer prevents all profiles from loading.
+- Clean Release builds restore and bundle the POS Hardware Test App reliably.
+- Application and companion version metadata now consistently reports 1.1.1.
+
+### Changed
+- Startup, background-task, and UI exceptions are logged with bounded log rotation.
+- Sidebar branding and release assets now use the hardware-focused DeviceMocker logo.
+
 ## [1.0.1] - 2026-05-29
 
 ### Fixed
@@ -116,3 +135,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [1.0.1]: https://github.com/x1n-Q/DeviceMocker/releases/tag/v1.0.1
 [1.0.0]: https://github.com/x1n-Q/DeviceMocker/releases/tag/v1.0.0
+[1.1.1]: https://github.com/x1n-Q/DeviceMocker/releases/tag/v1.1.1

@@ -1,3 +1,6 @@
+using System;
+using System.IO;
+using System.Text.Json;
 using System.Threading.Tasks;
 using DeviceMocker.Core;
 using DeviceMocker.Interfaces;
@@ -17,7 +20,18 @@ namespace DeviceMocker.Services
 
         public async Task<AppSettings> LoadAsync()
         {
-            _cachedSettings = await _storage.LoadAsync<AppSettings>(AppConstants.SettingsFile).ConfigureAwait(false);
+            try
+            {
+                _cachedSettings = await _storage.LoadAsync<AppSettings>(AppConstants.SettingsFile).ConfigureAwait(false);
+            }
+            catch (JsonException ex)
+            {
+                var backupPath = $"{AppConstants.SettingsFile}.corrupt-{DateTime.Now:yyyyMMdd-HHmmss}";
+                if (File.Exists(AppConstants.SettingsFile))
+                    File.Move(AppConstants.SettingsFile, backupPath, true);
+                AppLogger.Error($"Invalid settings were moved to '{backupPath}'.", ex);
+                _cachedSettings = null;
+            }
             if (_cachedSettings == null)
             {
                 _cachedSettings = new AppSettings();

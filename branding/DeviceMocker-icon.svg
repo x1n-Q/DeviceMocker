@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">DeviceMocker app icon</title>
+  <desc id="desc">A connected device with a heartbeat signal between code brackets.</desc>
+  <defs>
+    <radialGradient id="background" cx="50%" cy="42%" r="72%">
+      <stop offset="0" stop-color="#14264b"/>
+      <stop offset="0.58" stop-color="#09152c"/>
+      <stop offset="1" stop-color="#050b18"/>
+    </radialGradient>
+    <linearGradient id="signal" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#2584ff"/>
+      <stop offset="0.48" stop-color="#2ab8ff"/>
+      <stop offset="0.72" stop-color="#6d5dfc"/>
+      <stop offset="1" stop-color="#a855f7"/>
+    </linearGradient>
+  </defs>
+  <rect x="12" y="12" width="488" height="488" rx="108" fill="url(#background)"/>
+  <g fill="none" stroke="url(#signal)" stroke-width="27" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M132 190 72 256l60 66"/>
+    <path d="m380 190 60 66-60 66"/>
+    <path d="M220 128V91c0-12 10-22 22-22h28c12 0 22 10 22 22v37"/>
+    <path d="M238 96v17M274 96v17"/>
+    <path d="M170 222v-35c0-18 15-33 33-33h106c18 0 33 15 33 33v35"/>
+    <path d="M170 290v35c0 18 15 33 33 33h106c18 0 33-15 33-33v-35"/>
+    <path d="M139 265h68l24 52 27-106 28 98 22-44h65"/>
+  </g>
+</svg>

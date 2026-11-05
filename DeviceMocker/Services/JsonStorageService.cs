@@ -23,7 +23,17 @@ namespace DeviceMocker.Services
                 Directory.CreateDirectory(directory);
 
             var json = JsonSerializer.Serialize(data, Options);
-            await File.WriteAllTextAsync(path, json).ConfigureAwait(false);
+            var temporaryPath = $"{path}.{Guid.NewGuid():N}.tmp";
+            try
+            {
+                await File.WriteAllTextAsync(temporaryPath, json).ConfigureAwait(false);
+                File.Move(temporaryPath, path, true);
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath))
+                    File.Delete(temporaryPath);
+            }
         }
 
         public async Task<T?> LoadAsync<T>(string path)

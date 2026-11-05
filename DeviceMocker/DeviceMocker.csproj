@@ -13,10 +13,11 @@
     <Authors>Daniel Depaor</Authors>
     <PublisherName>xinQ</PublisherName>
     <Copyright>Copyright (c) Daniel Depaor</Copyright>
-    <Version>1.1.0</Version>
-    <AssemblyVersion>1.1.0.0</AssemblyVersion>
-    <FileVersion>1.1.0.0</FileVersion>
-    <InformationalVersion>1.1.0</InformationalVersion>
+    <Version>1.1.1</Version>
+    <AssemblyVersion>1.1.1.0</AssemblyVersion>
+    <FileVersion>1.1.1.0</FileVersion>
+    <InformationalVersion>1.1.1</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <ApplicationIcon>Assets\DeviceMocker.ico</ApplicationIcon>
   </PropertyGroup>
 
@@ -26,16 +27,17 @@
 
   <ItemGroup>
     <Resource Include="Assets\DeviceMocker.ico" />
+    <Resource Include="Assets\DeviceMocker-icon-512.png" />
   </ItemGroup>
 
-  <Target Name="BundleHardwareTestAppForBuild" AfterTargets="Build">
+  <Target Name="BundleHardwareTestAppForBuild" AfterTargets="Build" Condition="'$(BundleHardwareTestApp)' != 'false'">
     <MSBuild Projects="..\Samples\PosHardwareTestApp\PosHardwareTestApp.csproj"
-             Targets="Build"
+             Targets="Restore;Build"
              Properties="Configuration=$(Configuration);OutDir=$(TargetDir)PosHardwareTestApp\" />
   </Target>
 
-  <Target Name="BundleHardwareTestAppForPublish" AfterTargets="Publish">
-    <Exec Command="dotnet publish &quot;..\Samples\PosHardwareTestApp\PosHardwareTestApp.csproj&quot; -c $(Configuration) -r $(RuntimeIdentifier) -p:SelfContained=$(SelfContained) -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o &quot;$(PublishDir)PosHardwareTestApp&quot;" />
+  <Target Name="BundleHardwareTestAppForPublish" AfterTargets="Publish" Condition="'$(BundleHardwareTestApp)' != 'false'">
+    <Exec Command="dotnet publish &quot;..\Samples\PosHardwareTestApp\PosHardwareTestApp.csproj&quot; -c $(Configuration) -r $(RuntimeIdentifier) -p:SelfContained=$(SelfContained) -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o &quot;$(PublishDir)PosHardwareTestApp&quot;" />
   </Target>
 
 </Project>

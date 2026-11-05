@@ -27,9 +27,16 @@ namespace DeviceMocker.Core
 
             foreach (var file in Directory.GetFiles(_profilesFolder, "*.json"))
             {
-                var profile = await _storage.LoadAsync<DeviceProfile>(file);
-                if (profile != null)
-                    profiles.Add(profile);
+                try
+                {
+                    var profile = await _storage.LoadAsync<DeviceProfile>(file);
+                    if (profile != null)
+                        profiles.Add(profile);
+                }
+                catch (Exception ex)
+                {
+                    Services.AppLogger.Error($"Unable to load profile '{file}'.", ex);
+                }
             }
             return profiles.OrderByDescending(p => p.UpdatedAt).ToList();
         }
@@ -115,8 +122,15 @@ namespace DeviceMocker.Core
 
         private string GetProfilePath(string id)
         {
+            if (string.IsNullOrWhiteSpace(id))
+                throw new ArgumentException("A profile ID is required.", nameof(id));
+
             var safeName = string.Join("_", id.Split(Path.GetInvalidFileNameChars()));
-            return Path.Combine(_profilesFolder, $"{safeName}.json");
+            var path = Path.GetFullPath(Path.Combine(_profilesFolder, $"{safeName}.json"));
+            var folder = Path.GetFullPath(_profilesFolder) + Path.DirectorySeparatorChar;
+            if (!path.StartsWith(folder, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("The profile ID resolves outside the profiles folder.");
+            return path;
         }
     }
 }

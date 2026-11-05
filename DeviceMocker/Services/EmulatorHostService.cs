@@ -15,6 +15,7 @@ namespace DeviceMocker.Services
         private readonly ProfileManager _profileManager;
         private readonly CashDrawerEmulator _cashDrawerEmulator;
         private readonly EscPosPrinterEmulator _escPosPrinterEmulator;
+        private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
 
         private SerialEmulatorListener? _serialListener;
         private TcpEmulatorListener? _tcpListener;
@@ -65,63 +66,93 @@ namespace DeviceMocker.Services
 
         public async Task StartAsync(EmulatorProfileSettings settings, string profileName)
         {
-            await StopAsync();
-
-            if (!settings.Enabled)
-                settings.Enabled = true;
-
-            CurrentProfile = settings.Clone();
-            _currentProfileName = string.IsNullOrWhiteSpace(profileName) ? "Manual Session" : profileName;
-            _listenerStatus = BuildListenerStatus(CurrentProfile.Endpoint);
-            _runtimeCancellationTokenSource = new CancellationTokenSource();
-
-            _activeModule = CurrentProfile.DeviceFamily == EmulatorDeviceFamily.CashDrawer
-                ? _cashDrawerEmulator
-                : _escPosPrinterEmulator;
-
-            _activeModule.Start(CurrentProfile);
-
-            switch (CurrentProfile.Endpoint.Transport)
+            ArgumentNullException.ThrowIfNull(settings);
+            await _lifecycleLock.WaitAsync().ConfigureAwait(false);
+            try
             {
-                case EmulatorTransportType.Serial:
-                    _serialListener = new SerialEmulatorListener();
-                    await _serialListener.StartAsync(CurrentProfile.Endpoint, HandleIncomingBytesAsync, _runtimeCancellationTokenSource.Token);
-                    _sessionCount = 1;
-                    _sessionSummary = $"Listening on {CurrentProfile.Endpoint.SerialPortName} @ {CurrentProfile.Endpoint.BaudRate} baud.";
-                    break;
+                await StopCoreAsync().ConfigureAwait(false);
 
-                case EmulatorTransportType.Tcp:
-                    _tcpListener = new TcpEmulatorListener();
-                    _tcpListener.SessionChanged += OnTcpSessionChanged;
-                    await _tcpListener.StartAsync(CurrentProfile.Endpoint, HandleIncomingBytesAsync, _runtimeCancellationTokenSource.Token);
-                    _sessionCount = 0;
-                    _sessionSummary = $"Listening on {CurrentProfile.Endpoint.TcpHost}:{CurrentProfile.Endpoint.TcpPort}.";
-                    break;
+                if (!settings.Enabled)
+                    settings.Enabled = true;
 
-                case EmulatorTransportType.Http:
-                    throw new InvalidOperationException("HTTP listener is configuration-ready but not implemented in phase 1.");
+                CurrentProfile = settings.Clone();
+                _currentProfileName = string.IsNullOrWhiteSpace(profileName) ? "Manual Session" : profileName;
+                _listenerStatus = BuildListenerStatus(CurrentProfile.Endpoint);
+                _runtimeCancellationTokenSource = new CancellationTokenSource();
+
+                _activeModule = CurrentProfile.DeviceFamily == EmulatorDeviceFamily.CashDrawer
+                    ? _cashDrawerEmulator
+                    : _escPosPrinterEmulator;
+
+                _activeModule.Start(CurrentProfile);
+
+                try
+                {
+                    switch (CurrentProfile.Endpoint.Transport)
+                    {
+                        case EmulatorTransportType.Serial:
+                            _serialListener = new SerialEmulatorListener();
+                            await _serialListener.StartAsync(CurrentProfile.Endpoint, HandleIncomingBytesAsync, _runtimeCancellationTokenSource.Token).ConfigureAwait(false);
+                            _sessionCount = 1;
+                            _sessionSummary = $"Listening on {CurrentProfile.Endpoint.SerialPortName} @ {CurrentProfile.Endpoint.BaudRate} baud.";
+                            break;
+
+                        case EmulatorTransportType.Tcp:
+                            _tcpListener = new TcpEmulatorListener();
+                            _tcpListener.SessionChanged += OnTcpSessionChanged;
+                            await _tcpListener.StartAsync(CurrentProfile.Endpoint, HandleIncomingBytesAsync, _runtimeCancellationTokenSource.Token).ConfigureAwait(false);
+                            _sessionCount = 0;
+                            _sessionSummary = $"Listening on {CurrentProfile.Endpoint.TcpHost}:{CurrentProfile.Endpoint.TcpPort}.";
+                            break;
+
+                        case EmulatorTransportType.Http:
+                            throw new InvalidOperationException("HTTP listener is configuration-ready but not implemented in phase 1.");
+                    }
+
+                    IsRunning = true;
+                    RelayHostLog(EmulatorSessionLogKind.Session, $"Emulator host started with profile '{_currentProfileName}'.");
+                    RaiseStateChanged();
+                }
+                catch
+                {
+                    await StopCoreAsync().ConfigureAwait(false);
+                    throw;
+                }
             }
-
-            IsRunning = true;
-            RelayHostLog(EmulatorSessionLogKind.Session, $"Emulator host started with profile '{_currentProfileName}'.");
-            RaiseStateChanged();
+            finally
+            {
+                _lifecycleLock.Release();
+            }
         }
 
         public async Task StopAsync()
+        {
+            await _lifecycleLock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                await StopCoreAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
+        }
+
+        private async Task StopCoreAsync()
         {
             _runtimeCancellationTokenSource?.Cancel();
 
             if (_tcpListener != null)
             {
                 _tcpListener.SessionChanged -= OnTcpSessionChanged;
-                await _tcpListener.StopAsync();
+                await _tcpListener.StopAsync().ConfigureAwait(false);
                 _tcpListener.Dispose();
                 _tcpListener = null;
             }
 
             if (_serialListener != null)
             {
-                await _serialListener.StopAsync();
+                await _serialListener.StopAsync().ConfigureAwait(false);
                 _serialListener.Dispose();
                 _serialListener = null;
             }

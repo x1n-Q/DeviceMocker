@@ -51,14 +51,25 @@
         <Border Grid.Column="0" Background="{DynamicResource SecondaryBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
             <DockPanel>
                 <!-- Title Block -->
-                <StackPanel DockPanel.Dock="Top" Margin="16,20,16,24">
-                    <TextBlock Text="DeviceMocker" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}"/>
-                    <TextBlock Text="Hardware and POS Toolkit" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,0"/>
-                </StackPanel>
+                <Grid DockPanel.Dock="Top" Margin="16,18,16,24">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="42"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Image Grid.Column="0"
+                           Width="34"
+                           Height="34"
+                           Source="Assets/DeviceMocker-icon-512.png"
+                           Stretch="Uniform"/>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="DeviceMocker" FontSize="19" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        <TextBlock Text="Hardware and POS Toolkit" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,0"/>
+                    </StackPanel>
+                </Grid>
 
                 <!-- Version Block -->
                 <StackPanel DockPanel.Dock="Bottom" HorizontalAlignment="Center" Margin="0,0,0,14">
-                    <TextBlock Text="v1.1.0" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Center"/>
+                    <TextBlock Text="v1.1.1" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Center"/>
                     <TextBlock FontSize="10" HorizontalAlignment="Center" Margin="0,4,0,0">
                         <Run Text="by " Foreground="{DynamicResource TextSecondaryBrush}"/>
                         <Run Text="x1n-Q" Foreground="{DynamicResource AccentLightBrush}" FontWeight="SemiBold"/>

@@ -10,20 +10,21 @@ namespace DeviceMocker.Services
     {
         private SerialPort? _serialPort;
         private Func<byte[], string, CancellationToken, Task>? _onBytesReceived;
-        private CancellationToken _cancellationToken;
+        private CancellationTokenSource? _cancellationTokenSource;
+        private Task? _readLoopTask;
 
         public bool IsRunning => _serialPort?.IsOpen == true;
         public string PortName { get; private set; } = string.Empty;
 
-        public Task StartAsync(EmulatorEndpointConfig config, Func<byte[], string, CancellationToken, Task> onBytesReceived, CancellationToken cancellationToken)
+        public async Task StartAsync(EmulatorEndpointConfig config, Func<byte[], string, CancellationToken, Task> onBytesReceived, CancellationToken cancellationToken)
         {
-            Stop();
+            await StopAsync().ConfigureAwait(false);
 
             if (string.IsNullOrWhiteSpace(config.SerialPortName))
                 throw new InvalidOperationException("Serial listener requires a COM port.");
 
             _onBytesReceived = onBytesReceived;
-            _cancellationToken = cancellationToken;
+            _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             PortName = config.SerialPortName;
 
             _serialPort = new SerialPort(config.SerialPortName, config.BaudRate)
@@ -33,24 +34,29 @@ namespace DeviceMocker.Services
                 ReadTimeout = 250,
                 WriteTimeout = 500
             };
-            _serialPort.Open();
-
-            _ = Task.Run(() => ReadLoop(), cancellationToken);
-
-            return Task.CompletedTask;
+            try
+            {
+                _serialPort.Open();
+                _readLoopTask = Task.Run(() => ReadLoopAsync(_cancellationTokenSource.Token));
+            }
+            catch
+            {
+                await StopAsync().ConfigureAwait(false);
+                throw;
+            }
         }
 
-        private void ReadLoop()
+        private async Task ReadLoopAsync(CancellationToken cancellationToken)
         {
             var buffer = new byte[4096];
             try
             {
-                while (!_cancellationToken.IsCancellationRequested && _serialPort is { IsOpen: true })
+                while (!cancellationToken.IsCancellationRequested && _serialPort is { IsOpen: true } port)
                 {
                     int read;
                     try
                     {
-                        read = _serialPort.Read(buffer, 0, buffer.Length);
+                        read = port.Read(buffer, 0, buffer.Length);
                     }
                     catch (TimeoutException)
                     {
@@ -60,8 +66,10 @@ namespace DeviceMocker.Services
                     {
                         break;
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        if (!cancellationToken.IsCancellationRequested)
+                            AppLogger.Error($"Serial listener on '{PortName}' stopped unexpectedly.", ex);
                         break;
                     }
 
@@ -70,35 +78,60 @@ namespace DeviceMocker.Services
 
                     var payload = new byte[read];
                     Array.Copy(buffer, payload, read);
-                    _onBytesReceived?.Invoke(payload, $"Serial {PortName}", _cancellationToken).GetAwaiter().GetResult();
+                    if (_onBytesReceived != null)
+                        await _onBytesReceived(payload, $"Serial {PortName}", cancellationToken).ConfigureAwait(false);
                 }
             }
-            catch
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Error($"Serial listener on '{PortName}' failed.", ex);
             }
         }
 
-        public Task StopAsync()
+        public async Task StopAsync()
         {
-            Stop();
-            return Task.CompletedTask;
+            var cancellationTokenSource = _cancellationTokenSource;
+            var serialPort = _serialPort;
+            var readLoopTask = _readLoopTask;
+
+            _cancellationTokenSource = null;
+            _serialPort = null;
+            _readLoopTask = null;
+
+            cancellationTokenSource?.Cancel();
+            try
+            {
+                if (serialPort?.IsOpen == true)
+                    serialPort.Close();
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Error($"Unable to close serial listener on '{PortName}'.", ex);
+            }
+
+            if (readLoopTask != null)
+            {
+                try
+                {
+                    await readLoopTask.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+                }
+                catch (TimeoutException)
+                {
+                    AppLogger.Info($"Timed out while stopping serial listener on '{PortName}'.");
+                }
+            }
+
+            serialPort?.Dispose();
+            cancellationTokenSource?.Dispose();
         }
 
         public void Dispose()
         {
-            Stop();
+            StopAsync().GetAwaiter().GetResult();
             GC.SuppressFinalize(this);
-        }
-
-        private void Stop()
-        {
-            if (_serialPort != null)
-            {
-                if (_serialPort.IsOpen)
-                    _serialPort.Close();
-                _serialPort.Dispose();
-                _serialPort = null;
-            }
         }
     }
 }

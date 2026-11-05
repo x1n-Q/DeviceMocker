@@ -96,9 +96,9 @@ namespace DeviceMocker.Core
             DeviceManager.Register(CashDrawerDevice);
         }
 
-        public static void Shutdown()
+        public static async Task ShutdownAsync()
         {
-            EmulatorHost.StopAsync().GetAwaiter().GetResult();
+            await EmulatorHost.StopAsync().ConfigureAwait(false);
             SerialOutput.Dispose();
         }
     }
