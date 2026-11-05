@@ -141,6 +141,8 @@ namespace DeviceMocker.ViewModels
             set => SetProperty(ref _receiptPreviewText, value);
         }
 
+        public ObservableCollection<ReceiptBlock> ReceiptBlocks { get; } = new();
+
         public string StatusMessage
         {
             get => _statusMessage;
@@ -162,6 +164,20 @@ namespace DeviceMocker.ViewModels
         public Array DrawerLinkModeOptions { get; } = Enum.GetValues(typeof(DrawerLinkMode));
         public Array TransportOptions { get; } = Enum.GetValues(typeof(EmulatorTransportType));
 
+        public IReadOnlyList<PaperWidthOption> PaperWidthOptions { get; } = new List<PaperWidthOption>
+        {
+            new("58mm", ReceiptPaperWidth.Mm58),
+            new("80mm", ReceiptPaperWidth.Mm80),
+        };
+
+        public ReceiptPaperWidth SelectedPaperWidth
+        {
+            get => _selectedPaperWidth;
+            set => SetProperty(ref _selectedPaperWidth, value);
+        }
+
+        private ReceiptPaperWidth _selectedPaperWidth = ReceiptPaperWidth.Mm80;
+
         public ICommand RefreshProfilesCommand { get; }
         public ICommand LoadProfileCommand { get; }
         public ICommand SaveProfileCommand { get; }
@@ -172,6 +188,8 @@ namespace DeviceMocker.ViewModels
         public ICommand ClearLogsCommand { get; }
         public ICommand MarkDrawerClosedCommand { get; }
         public ICommand SaveAutoStartCommand { get; }
+        public ICommand CopyRawLogsCommand { get; }
+        public ICommand CopyParsedLogsCommand { get; }
 
         public EmulatorsViewModel()
         {
@@ -185,6 +203,8 @@ namespace DeviceMocker.ViewModels
             ClearLogsCommand = new RelayCommand(ClearLogs);
             MarkDrawerClosedCommand = new RelayCommand(MarkDrawerClosed);
             SaveAutoStartCommand = new AsyncRelayCommand(SaveAutoStartAsync);
+            CopyRawLogsCommand = new RelayCommand(() => CopyLogs(RawLogs));
+            CopyParsedLogsCommand = new RelayCommand(() => CopyLogs(ParsedLogs));
 
             ServiceLocator.EmulatorHost.LogReceived += OnHostLogReceived;
             ServiceLocator.EmulatorHost.StateChanged += ApplySnapshot;
@@ -359,6 +379,7 @@ namespace DeviceMocker.ViewModels
                 Protocol = SelectedProtocol,
                 DrawerLinkMode = SelectedDrawerLinkMode,
                 RenderReceiptPreview = RenderReceiptPreview,
+                PaperWidth = SelectedPaperWidth,
                 Endpoint = new EmulatorEndpointConfig
                 {
                     Transport = SelectedTransport,
@@ -386,6 +407,7 @@ namespace DeviceMocker.ViewModels
             TcpHost = settings.Endpoint.TcpHost;
             TcpPort = settings.Endpoint.TcpPort;
             RenderReceiptPreview = settings.RenderReceiptPreview;
+            SelectedPaperWidth = settings.PaperWidth;
         }
 
         private void OnHostLogReceived(EmulatorSessionLog log)
@@ -410,6 +432,9 @@ namespace DeviceMocker.ViewModels
                 ReceiptPreviewText = string.IsNullOrWhiteSpace(snapshot.ReceiptPreview)
                     ? "(No receipt output yet)"
                     : snapshot.ReceiptPreview;
+                ReceiptBlocks.Clear();
+                foreach (var block in snapshot.ReceiptBlocks)
+                    ReceiptBlocks.Add(block);
                 DrawerState = snapshot.IsDrawerOpen ? "Open" : "Closed";
             });
         }
@@ -420,5 +445,23 @@ namespace DeviceMocker.ViewModels
             while (target.Count > MaxLogEntries)
                 target.RemoveAt(target.Count - 1);
         }
+
+        private static void CopyLogs(ObservableCollection<EmulatorSessionLog> logs)
+        {
+            var text = string.Join(Environment.NewLine, logs.Select(log =>
+                $"{log.Timestamp:HH:mm:ss.fff} [{log.Kind}] {log.Message}{(string.IsNullOrWhiteSpace(log.DataHex) ? string.Empty : " " + log.DataHex)}"));
+            if (string.IsNullOrEmpty(text))
+                return;
+
+            try
+            {
+                System.Windows.Clipboard.SetText(text);
+            }
+            catch
+            {
+            }
+        }
     }
+
+    public sealed record PaperWidthOption(string Label, ReceiptPaperWidth Value);
 }

@@ -4,6 +4,9 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using DeviceMocker.Interfaces;
 using DeviceMocker.Models;
 
@@ -13,18 +16,23 @@ namespace DeviceMocker.Services
     {
         public const string ResetDrawerTestCommand = "<<DM_RESET_DRAWER>>";
 
+        private const double PixelsPerColumn = 8.0;
+
         private readonly CashDrawerEmulator _cashDrawer;
         private readonly List<byte> _pendingBytes = new();
-        private readonly StringBuilder _receiptBuilder = new();
+        private readonly List<ReceiptBlock> _blocks = new();
         private readonly StringBuilder _currentLine = new();
 
         private int _alignmentMode;
         private bool _emphasis;
         private bool _renderPreview = true;
         private string _sessionLabel = "escpos";
+        private int _paperColumns = 42;
+        private int _paperDots = 576;
 
         public string Id => "escpos-printer-emulator";
         public string Name => "ESC/POS Printer Emulator";
+        public IReadOnlyList<ReceiptBlock> Blocks => _blocks;
         public string ReceiptPreview => BuildPreviewText();
         public bool IsDrawerOpen => _cashDrawer.IsDrawerOpen;
 
@@ -41,11 +49,13 @@ namespace DeviceMocker.Services
         public void Start(EmulatorProfileSettings settings)
         {
             _pendingBytes.Clear();
-            _receiptBuilder.Clear();
+            _blocks.Clear();
             _currentLine.Clear();
             _alignmentMode = 0;
             _emphasis = false;
             _renderPreview = settings.RenderReceiptPreview;
+            _paperColumns = settings.PaperWidth == ReceiptPaperWidth.Mm58 ? 32 : 42;
+            _paperDots = settings.PaperWidth == ReceiptPaperWidth.Mm58 ? 384 : 576;
             _sessionLabel = settings.DeviceFamily == EmulatorDeviceFamily.ReceiptPrinter ? "receipt-printer" : "printer";
             _cashDrawer.MarkClosed("Printer emulator session started. Drawer reset to closed.");
             EmitParsed("ESC/POS printer emulator ready.");
@@ -170,6 +180,15 @@ namespace DeviceMocker.Services
                     index += 3;
                     return true;
 
+                case 0x64: // ESC d - feed paper n lines
+                    if (index + 2 >= _pendingBytes.Count)
+                        return false;
+                    var feed = _pendingBytes[index + 2];
+                    FlushCurrentLine(force: true);
+                    EmitParsed($"ESC d -> Feed paper ({feed} line(s))");
+                    index += 3;
+                    return true;
+
                 default:
                     EmitWarning($"Unknown ESC command 0x{command:X2}");
                     index += 2;
@@ -190,10 +209,25 @@ namespace DeviceMocker.Services
                     if (index + 2 >= _pendingBytes.Count)
                         return false;
                     var mode = _pendingBytes[index + 2];
-                    EmitParsed($"GS V -> Cut paper (mode={mode})");
-                    AppendRenderMarker("[CUT]");
-                    index += 3;
+                    if (mode == 0x41 || mode == 0x42) // GS V m n (feed + cut)
+                    {
+                        if (index + 3 >= _pendingBytes.Count)
+                            return false;
+                        var n = _pendingBytes[index + 3];
+                        EmitParsed($"GS V -> Cut paper (mode={mode}, n={n})");
+                        AppendRenderMarker("[CUT]");
+                        index += 4;
+                    }
+                    else
+                    {
+                        EmitParsed($"GS V -> Cut paper (mode={mode})");
+                        AppendRenderMarker("[CUT]");
+                        index += 3;
+                    }
                     return true;
+
+                case 0x76: // GS v - print raster bit image
+                    return TryParseGsV0(ref index);
 
                 default:
                     EmitWarning($"Unknown GS command 0x{command:X2}");
@@ -202,12 +236,110 @@ namespace DeviceMocker.Services
             }
         }
 
+        private bool TryParseGsV0(ref int index)
+        {
+            // GS v 0 m xL xH yL yH d1...dk — print raster bit image.
+            if (index + 8 > _pendingBytes.Count)
+                return false;
+
+            var sub = _pendingBytes[index + 2];
+            if (sub != 0x30)
+            {
+                EmitWarning($"Unknown GS v sub-command 0x{sub:X2}");
+                index += 3;
+                return true;
+            }
+
+            var m = _pendingBytes[index + 3];
+            var xL = _pendingBytes[index + 4];
+            var xH = _pendingBytes[index + 5];
+            var yL = _pendingBytes[index + 6];
+            var yH = _pendingBytes[index + 7];
+
+            var bytesPerRow = xL + (xH << 8);
+            var heightDots = yL + (yH << 8);
+
+            int bytesPerColumn;
+            switch (m)
+            {
+                case 0x00: // 8-dot single density
+                case 0x01: // 8-dot double density
+                case 0x30: // 8-dot raster (color 1)
+                case 0x31: // 8-dot raster (color 2)
+                case 0x32: // 8-dot raster (color 3)
+                case 0x33: // 8-dot raster (color 4)
+                    bytesPerColumn = 1;
+                    break;
+                case 0x20: // 24-dot single density
+                case 0x21: // 24-dot double density
+                    bytesPerColumn = 3;
+                    break;
+                default:
+                    EmitWarning($"Unknown GS v 0 density m=0x{m:X2}");
+                    index += 8;
+                    return true;
+            }
+
+            var widthDots = bytesPerRow * 8;
+            var dataLength = bytesPerRow * bytesPerColumn * heightDots;
+            if (dataLength <= 0 || index + 8 + dataLength > _pendingBytes.Count)
+                return false;
+
+            var data = _pendingBytes.GetRange(index + 8, dataLength).ToArray();
+
+            FlushCurrentLine(force: true);
+            EmitParsed($"GS v 0 -> Print raster image {widthDots} x {heightDots} dots (m=0x{m:X2})");
+
+            if (_renderPreview)
+            {
+                if (bytesPerColumn == 1)
+                {
+                    var bitmap = BuildBitmap(data, bytesPerRow, heightDots);
+                    var scale = _paperColumns * PixelsPerColumn / _paperDots;
+                    _blocks.Add(new ReceiptImageBlock
+                    {
+                        Bitmap = bitmap,
+                        DisplayWidth = widthDots * scale,
+                        DisplayHeight = heightDots * scale
+                    });
+                }
+                else
+                {
+                    _blocks.Add(new ReceiptTextBlock { Text = $"[BITMAP {widthDots}x{heightDots}]" });
+                }
+            }
+
+            EmitRender($"Rendered raster image {widthDots}x{heightDots} dots");
+
+            index += 8 + dataLength;
+            return true;
+        }
+
+        private static BitmapSource BuildBitmap(byte[] data, int bytesPerRow, int heightDots)
+        {
+            var widthDots = bytesPerRow * 8;
+            var pixels = new byte[widthDots * heightDots];
+            for (var y = 0; y < heightDots; y++)
+            {
+                for (var x = 0; x < widthDots; x++)
+                {
+                    var black = (data[y * bytesPerRow + x / 8] & (0x80 >> (x % 8))) != 0;
+                    pixels[y * widthDots + x] = black ? (byte)0 : (byte)255; // Gray8: 0 = black, 255 = white
+                }
+            }
+
+            var bitmap = new WriteableBitmap(widthDots, heightDots, 96, 96, PixelFormats.Gray8, null);
+            bitmap.WritePixels(new Int32Rect(0, 0, widthDots, heightDots), pixels, widthDots, 0);
+            bitmap.Freeze();
+            return bitmap;
+        }
+
         private void FlushCurrentLine(bool force = false)
         {
             if (_currentLine.Length == 0 && !force)
             {
                 if (_renderPreview)
-                    _receiptBuilder.AppendLine();
+                    _blocks.Add(new ReceiptTextBlock { Text = " " });
                 return;
             }
 
@@ -224,7 +356,7 @@ namespace DeviceMocker.Services
                 line = $"[B] {line}";
 
             if (_renderPreview)
-                _receiptBuilder.AppendLine(ApplyAlignment(line));
+                _blocks.Add(new ReceiptTextBlock { Text = ApplyAlignment(line) });
 
             if (line.Length > 0)
                 EmitRender($"Rendered line: {line}");
@@ -236,13 +368,13 @@ namespace DeviceMocker.Services
         {
             FlushCurrentLine(force: true);
             if (_renderPreview)
-                _receiptBuilder.AppendLine(marker);
+                _blocks.Add(new ReceiptTextBlock { Text = marker });
             EmitRender(marker);
         }
 
         private string ApplyAlignment(string line)
         {
-            const int width = 42;
+            var width = _paperColumns;
             if (line.Length >= width)
                 return line;
 
@@ -256,12 +388,24 @@ namespace DeviceMocker.Services
 
         private string BuildPreviewText()
         {
-            if (_currentLine.Length == 0)
-                return _receiptBuilder.ToString();
+            var sb = new StringBuilder();
+            foreach (var block in _blocks)
+            {
+                switch (block)
+                {
+                    case ReceiptTextBlock text:
+                        sb.AppendLine(text.Text);
+                        break;
+                    case ReceiptImageBlock image:
+                        sb.AppendLine($"[IMAGE {image.DisplayWidth:0}x{image.DisplayHeight:0}px]");
+                        break;
+                }
+            }
 
-            var previewLines = new[] { _receiptBuilder.ToString().TrimEnd('\r', '\n'), ApplyAlignment(_currentLine.ToString()) }
-                .Where(x => !string.IsNullOrEmpty(x));
-            return string.Join(Environment.NewLine, previewLines);
+            if (_currentLine.Length > 0)
+                sb.AppendLine(ApplyAlignment(_currentLine.ToString()));
+
+            return sb.ToString();
         }
 
         private void EmitParsed(string message) => EmitLog(EmulatorSessionLogKind.Parsed, message);
